@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +15,76 @@ import (
 	"github.com/bpiddubnyi/uptime/cmd/crawler/config"
 )
 
+type client struct {
+	c *http.Client
+	a *net.TCPAddr
+}
+
+func (c *client) check(url string) {
+	t := time.Now()
+
+	_, err := c.c.Get(url)
+	if err != nil {
+		fmt.Printf("%s %s %s: down (%s)\n", c.a.IP.String(), t.UTC().String(), url, err)
+	} else {
+		fmt.Printf("%s %s %s: up\n", c.a.IP.String(), t.UTC().String(), url)
+	}
+}
+
+func (c *client) Check(url string, period time.Duration, shutdown chan struct{}) {
+	tick := time.NewTicker(period)
+	defer tick.Stop()
+
+	wg := sync.WaitGroup{}
+
+theLoop:
+	for {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.check(url)
+		}()
+
+		select {
+		case <-tick.C:
+			continue theLoop
+
+		case _, ok := <-shutdown:
+			if !ok {
+				break theLoop
+			}
+		}
+	}
+	wg.Wait()
+}
+
+func getLocalAddr() (*net.TCPAddr, error) {
+	conn, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		return nil, err
+	}
+	return &net.TCPAddr{IP: conn.LocalAddr().(*net.UDPAddr).IP}, nil
+}
+
+func setupClient(period int, addr *net.TCPAddr) *http.Client {
+	return &http.Client{
+		Timeout: time.Duration(period) * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				LocalAddr: addr,
+				Timeout:   time.Duration(period) * time.Second,
+				KeepAlive: time.Duration(period) * time.Second,
+				DualStack: true,
+			}).DialContext,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+}
+
 var (
 	dbURI       = "postgres://user:password@localhost/db"
 	cfgFileName string
@@ -23,11 +92,6 @@ var (
 	showHelp    = false
 	ipsRaw      string
 )
-
-type client struct {
-	c *http.Client
-	a *net.TCPAddr
-}
 
 func init() {
 	flag.StringVar(&dbURI, "db", dbURI, "postgres connection string")
@@ -64,99 +128,48 @@ func main() {
 		os.Exit(1)
 	}
 
-	var clients []client
+	var clients []*client
 	if len(ipsRaw) > 0 {
 		ips := strings.Split(ipsRaw, ",")
-		clients = make([]client, len(ips))
+		clients = make([]*client, len(ips))
 		for i, ip := range ips {
-			ad, err := net.ResolveTCPAddr("tcp", ip+":0")
+			addr, err := net.ResolveTCPAddr("tcp", ip+":0")
 			if err != nil {
 				fmt.Printf("Failed to resolve tcp address %s: %s\n", ip, err)
 				os.Exit(1)
 			}
 
-			clients[i] = client{
-				c: &http.Client{
-					Timeout: time.Duration(period) * time.Second,
-					Transport: &http.Transport{
-						Proxy: http.ProxyFromEnvironment,
-						DialContext: (&net.Dialer{
-							LocalAddr: ad,
-							Timeout:   time.Duration(period) * time.Second,
-							KeepAlive: time.Duration(period) * time.Second,
-							DualStack: true,
-						}).DialContext,
-						MaxIdleConns:          100,
-						IdleConnTimeout:       90 * time.Second,
-						TLSHandshakeTimeout:   10 * time.Second,
-						ExpectContinueTimeout: 1 * time.Second,
-					},
-				},
-				a: ad,
-			}
+			clients[i] = &client{c: setupClient(period, addr), a: addr}
 		}
 	} else {
-
-		conn, err := net.Dial("udp", "8.8.8.8:53")
+		addr, err := getLocalAddr()
 		if err != nil {
 			fmt.Printf("Error: Failed to create connection to get the local address: %s", err)
 			os.Exit(1)
 		}
-		a := &net.TCPAddr{IP: conn.LocalAddr().(*net.UDPAddr).IP}
 
-		clients = make([]client, 1)
-		clients[0] = client{
-			c: &http.Client{
-				Timeout: time.Duration(period) * time.Second,
-				Transport: &http.Transport{
-					Proxy: http.ProxyFromEnvironment,
-					DialContext: (&net.Dialer{
-						Timeout:   time.Duration(period) * time.Second,
-						KeepAlive: time.Duration(period) * time.Second,
-						DualStack: true,
-					}).DialContext,
-					MaxIdleConns:          100,
-					IdleConnTimeout:       90 * time.Second,
-					TLSHandshakeTimeout:   10 * time.Second,
-					ExpectContinueTimeout: 1 * time.Second,
-				},
-			},
-			a: a,
-		}
+		clients = make([]*client, 1)
+		clients[0] = &client{c: setupClient(period, nil), a: addr}
 	}
 
 	stopC := make(chan os.Signal, 2)
 	signal.Notify(stopC, syscall.SIGTERM, syscall.SIGINT)
 
-	tick := time.NewTicker(time.Duration(period) * time.Second)
+	shutdownC := make(chan struct{})
 
 	wg := sync.WaitGroup{}
-
-theLoop:
-	for {
-		select {
-		case sig := <-stopC:
-			log.Printf("%s signal received. Stop gracefully", sig)
-			break theLoop
-
-		case t := <-tick.C:
-			for _, url := range urls {
-				wg.Add(1)
-				go func(url string, t time.Time) {
-					defer wg.Done()
-
-					for _, c := range clients {
-						_, err := c.c.Get(url)
-						if err != nil {
-							fmt.Printf("%s %s %s: down (%s)\n", c.a, t, url, err)
-						} else {
-							fmt.Printf("%s %s %s: up\n", c.a, t, url)
-						}
-					}
-				}(url, t)
-			}
+	for _, u := range urls {
+		for _, c := range clients {
+			wg.Add(1)
+			go func(c *client, u string) {
+				defer wg.Done()
+				c.Check(u, time.Duration(period)*time.Second, shutdownC)
+			}(c, u)
 		}
 	}
-	wg.Wait()
 
+	sig := <-stopC
+	fmt.Printf("Info: Received %s signal. Shutting down gracefully\n", sig)
+	close(shutdownC)
+	wg.Wait()
 }
