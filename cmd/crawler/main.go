@@ -40,7 +40,7 @@ func main() {
 	}
 
 	if len(cfgFileName) == 0 {
-		fmt.Printf("Error: config filename is empty\n")
+		fmt.Printf("Error: empty config filename\n")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -70,17 +70,17 @@ func main() {
 
 	crawler, err := newCrawler(urls, ips, time.Duration(period)*time.Second, db)
 	if err != nil {
-		fmt.Printf("Error: failed to create crawler: %s", err)
+		fmt.Printf("Error: failed to create crawler: %s\n", err)
 		os.Exit(1)
 	}
 
-	stopC := make(chan os.Signal, 2)
-	signal.Notify(stopC, syscall.SIGTERM, syscall.SIGINT)
+	sigC := make(chan os.Signal, 2)
+	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
 
 	shutdownC := make(chan struct{})
 
 	go func() {
-		sig := <-stopC
+		sig := <-sigC
 		fmt.Printf("Info: Received %s signal. Shutting down gracefully\n", sig)
 		close(shutdownC)
 	}()
