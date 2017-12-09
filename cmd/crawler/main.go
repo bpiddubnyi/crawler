@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/bpiddubnyi/uptime/cmd/crawler/config"
+	"github.com/bpiddubnyi/uptime/db/pq"
 )
 
 var (
-	dbURI       = "postgres://user:password@localhost/db"
+	dbURI       = "postgres://user:password@localhost/db?sslmode=disable"
 	cfgFileName string
 	period      = 30
 	showHelp    = false
@@ -54,8 +55,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	ips := strings.Split(ipsRaw, ",")
-	crawler, err := newCrawler(urls, ips, time.Duration(period)*time.Second)
+	db, err := pq.New(dbURI)
+	if err != nil {
+		fmt.Printf("Error: failed to create db connection: %s\n", err)
+		os.Exit(1)
+	}
+
+	var ips []string
+	if len(ipsRaw) > 0 {
+		ips = strings.Split(ipsRaw, ",")
+	}
+
+	crawler, err := newCrawler(urls, ips, time.Duration(period)*time.Second, db)
 	if err != nil {
 		fmt.Printf("Error: %s", err)
 		os.Exit(1)
@@ -72,5 +83,8 @@ func main() {
 		close(shutdownC)
 	}()
 
-	crawler.Crawl(shutdownC)
+	if err = crawler.Crawl(shutdownC); err != nil {
+		fmt.Printf("Error: %s", err)
+		os.Exit(1)
+	}
 }

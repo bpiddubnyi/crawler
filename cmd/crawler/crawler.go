@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/bpiddubnyi/uptime/db"
 )
 
 type client struct {
@@ -13,18 +15,16 @@ type client struct {
 	a *net.TCPAddr
 }
 
-func (c *client) check(url string) {
-	t := time.Now()
-
+func (c *client) check(url string, rC chan<- db.Record) {
+	rec := db.Record{URL: url, Time: time.Now(), LocalIP: c.a.IP.String()}
 	_, err := c.c.Get(url)
-	if err != nil {
-		fmt.Printf("%s %s %s: down (%s)\n", c.a.IP.String(), t.UTC().String(), url, err)
-	} else {
-		fmt.Printf("%s %s %s: up\n", c.a.IP.String(), t.UTC().String(), url)
+	if err == nil {
+		rec.Up = true
 	}
+	rC <- rec
 }
 
-func (c *client) Check(url string, period time.Duration, shutdown chan struct{}) {
+func (c *client) Check(url string, period time.Duration, rC chan<- db.Record, shutdownC <-chan struct{}) {
 	tick := time.NewTicker(period)
 	defer tick.Stop()
 
@@ -35,14 +35,14 @@ theLoop:
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.check(url)
+			c.check(url, rC)
 		}()
 
 		select {
 		case <-tick.C:
 			continue theLoop
 
-		case _, ok := <-shutdown:
+		case _, ok := <-shutdownC:
 			if !ok {
 				break theLoop
 			}
@@ -82,12 +82,14 @@ type crawler struct {
 	urls    []string
 	clients []*client
 	period  time.Duration
+	w       db.Writer
 }
 
-func newCrawler(urls, ips []string, period time.Duration) (*crawler, error) {
+func newCrawler(urls, ips []string, period time.Duration, w db.Writer) (*crawler, error) {
 	res := &crawler{
 		urls:   urls,
 		period: period,
+		w:      w,
 	}
 
 	if len(ips) > 0 {
@@ -113,16 +115,43 @@ func newCrawler(urls, ips []string, period time.Duration) (*crawler, error) {
 	return res, nil
 }
 
-func (c *crawler) Crawl(shutdownC chan struct{}) {
+func (c *crawler) Crawl(shutdownC <-chan struct{}) error {
+	rC := make(chan db.Record, 500)
+	errC := make(chan error)
+	stopC := make(chan struct{})
+
+	go c.w.Write(c.period, rC, errC)
+
 	wg := sync.WaitGroup{}
-	for _, url := range c.urls {
-		for _, cl := range c.clients {
+
+	for _, cl := range c.clients {
+		for _, url := range c.urls {
 			wg.Add(1)
 			go func(cl *client, url string) {
-				defer wg.Done()
-				cl.Check(url, c.period, shutdownC)
+				cl.Check(url, c.period, rC, stopC)
+				wg.Done()
 			}(cl, url)
 		}
 	}
-	wg.Wait()
+
+	var err error
+
+	select {
+	case _, ok := <-shutdownC:
+		if !ok {
+			close(stopC)
+			wg.Wait()
+			close(rC)
+			err = <-errC
+			break
+		}
+	case err = <-errC:
+		close(stopC)
+		wg.Wait()
+		close(rC)
+		break
+	}
+
+	close(errC)
+	return err
 }
