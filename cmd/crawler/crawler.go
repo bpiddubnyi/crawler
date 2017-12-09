@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bpiddubnyi/uptime/db"
+	"github.com/bpiddubnyi/crawler/db"
 )
 
 type client struct {

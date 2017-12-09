@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/bpiddubnyi/uptime/db"
+	"github.com/bpiddubnyi/crawler/db"
 	_ "github.com/lib/pq"
 )
 

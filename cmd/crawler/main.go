@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bpiddubnyi/uptime/cmd/crawler/config"
-	"github.com/bpiddubnyi/uptime/db/pq"
+	"github.com/bpiddubnyi/crawler/cmd/crawler/config"
+	"github.com/bpiddubnyi/crawler/db/pq"
 )
 
 var (
