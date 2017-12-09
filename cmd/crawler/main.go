@@ -14,11 +14,12 @@ import (
 )
 
 var (
-	dbURI       = "postgres://user:password@localhost/db?sslmode=disable"
-	cfgFileName string
-	period      = 30
-	showHelp    = false
-	ipsRaw      string
+	dbURI            = "postgres://user:password@localhost/db?sslmode=disable"
+	cfgFileName      string
+	period           = 30
+	showHelp         = false
+	ipsRaw           string
+	reconnectRetries = 5
 )
 
 func init() {
@@ -27,6 +28,7 @@ func init() {
 	flag.IntVar(&period, "period", period, "monitoring period in seconds")
 	flag.BoolVar(&showHelp, "help", showHelp, "show this help message and exit")
 	flag.StringVar(&ipsRaw, "ips", ipsRaw, "comma separated list of ip addresses")
+	flag.IntVar(&reconnectRetries, "retry", reconnectRetries, "number of db connection attempts, convenient for docker-compose")
 }
 
 func main() {
@@ -55,7 +57,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	db, err := pq.New(dbURI)
+	db, err := pq.New(dbURI, reconnectRetries)
 	if err != nil {
 		fmt.Printf("Error: failed to create db connection: %s\n", err)
 		os.Exit(1)
@@ -68,7 +70,7 @@ func main() {
 
 	crawler, err := newCrawler(urls, ips, time.Duration(period)*time.Second, db)
 	if err != nil {
-		fmt.Printf("Error: %s", err)
+		fmt.Printf("Error: failed to create crawler: %s", err)
 		os.Exit(1)
 	}
 
@@ -83,8 +85,9 @@ func main() {
 		close(shutdownC)
 	}()
 
+	fmt.Printf("Starting crawler [∫]\n")
 	if err = crawler.Crawl(shutdownC); err != nil {
-		fmt.Printf("Error: %s", err)
+		fmt.Printf("Error: Crawler failed: %s\n", err)
 		os.Exit(1)
 	}
 }

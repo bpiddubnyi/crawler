@@ -12,7 +12,7 @@ type DB struct {
 	conn *sql.DB
 }
 
-func New(uri string) (*DB, error) {
+func New(uri string, retries int) (*DB, error) {
 	var (
 		res *DB = &DB{}
 		err error
@@ -22,6 +22,19 @@ func New(uri string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	for i := 0; i < retries; i++ {
+		err = res.conn.Ping()
+		if err == nil {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
 	return res, nil
 }
 
