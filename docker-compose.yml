@@ -1,0 +1,20 @@
+version: '2'
+services:
+  crawler:
+    build: .
+    depends_on: 
+     - "psql"
+    entrypoint:
+     - crawler
+     - -db=postgres://crawl:crawl@psql/crawl?sslmode=disable
+     - -period=5
+     - -config=/tmp/crawler_config
+    volumes:
+     - ./example_config:/tmp/crawler_config
+  
+  psql:
+    build: ./db/pq/
+    environment:
+     - POSTGRES_PASSWORD=crawl
+     - POSTGRES_DB=crawl
+     - POSTGRES_USER=crawl
