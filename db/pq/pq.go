@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/bpiddubnyi/crawler/db"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 type DB struct {
@@ -38,8 +38,14 @@ func New(uri string, retries int) (*DB, error) {
 	return res, nil
 }
 
-func (db *DB) Write(flushPeriod time.Duration, rC <-chan *db.Record, errC chan<- error) {
-	tx, err := db.conn.Begin()
+func (d *DB) Write(flushPeriod time.Duration, rC <-chan *db.Record, errC chan<- error) {
+	tx, err := d.conn.Begin()
+	if err != nil {
+		errC <- err
+		return
+	}
+
+	stmt, err := tx.Prepare(pq.CopyIn("uptime_log", "url", "time", "local_ip", "up"))
 	if err != nil {
 		errC <- err
 		return
@@ -55,15 +61,29 @@ theLoop:
 			if !ok {
 				break theLoop
 			}
-			_, err = tx.Exec("INSERT INTO uptime_log (url, time, local_ip, up) VALUES ($1, $2, $3, $4)",
-				r.URL, r.Time.UTC(), r.LocalIP, r.Up)
+			_, err = stmt.Exec(r.URL, r.Time.UTC(), r.LocalIP, r.Up)
 			if err != nil {
 				tx = nil
 				break theLoop
 			}
 		case <-t.C:
-			tx.Commit()
-			tx, err = db.conn.Begin()
+			_, err = stmt.Exec()
+			if err != nil {
+				stmt.Close()
+				tx.Rollback()
+				break
+			}
+			err = tx.Commit()
+			if err != nil {
+				break theLoop
+			}
+
+			tx, err = d.conn.Begin()
+			if err != nil {
+				break theLoop
+			}
+
+			stmt, err = tx.Prepare(pq.CopyIn("uptime_log", "url", "time", "local_ip", "up"))
 			if err != nil {
 				break theLoop
 			}
@@ -75,4 +95,46 @@ theLoop:
 	}
 
 	errC <- err
+}
+
+func (d *DB) GetRecords(from, to time.Time) ([]db.Record, error) {
+	rows, err := d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
+		WHERE time >= $1 AND time <= $2
+		ORDER BY time`, from.UTC(), to.UTC())
+	if err != nil {
+		return nil, err
+	}
+
+	res := []db.Record{}
+	for rows.Next() {
+		r := db.Record{}
+		err = rows.Scan(&r.URL, &r.Time, &r.LocalIP, &r.Up)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, r)
+	}
+
+	return res, nil
+}
+
+func (d *DB) GetDomainRecords(url string, from, to time.Time) ([]db.Record, error) {
+	rows, err := d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
+		WHERE time >= $1 AND time <= $2 AND url=$3
+		ORDER BY time`, from.UTC(), to.UTC(), url)
+	if err != nil {
+		return nil, err
+	}
+
+	res := []db.Record{}
+	for rows.Next() {
+		r := db.Record{}
+		err = rows.Scan(&r.URL, &r.Time, &r.LocalIP, &r.Up)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, r)
+	}
+
+	return res, nil
 }
