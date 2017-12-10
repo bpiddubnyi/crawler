@@ -1,10 +1,18 @@
 package config
 
-import "io"
-import "bufio"
-import "fmt"
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"io"
+)
 
 const limit = 2000
+
+var (
+	httpPrefix  = []byte("http://")
+	httpsPrefix = []byte("https://")
+)
 
 func Parse(r io.Reader) ([]string, error) {
 	s := bufio.NewScanner(r)
@@ -14,7 +22,12 @@ func Parse(r io.Reader) ([]string, error) {
 		if i == limit {
 			return nil, fmt.Errorf("Config exceeds %d lines size limit", limit)
 		}
-		res = append(res, s.Text())
+
+		url := bytes.TrimSpace(s.Bytes())
+		if !bytes.HasPrefix(url, httpPrefix) && !bytes.HasPrefix(url, httpsPrefix) {
+			url = append([]byte("http://"), url...)
+		}
+		res = append(res, string(url))
 	}
 
 	if s.Err() != nil {

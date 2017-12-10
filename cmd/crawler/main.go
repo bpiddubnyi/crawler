@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strings"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/bpiddubnyi/crawler/cmd/crawler/config"
 	"github.com/bpiddubnyi/crawler/db/pq"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 var (
@@ -20,6 +24,7 @@ var (
 	showHelp         = false
 	ipsRaw           string
 	reconnectRetries = 5
+	pprofPort        = 0
 )
 
 func init() {
@@ -29,6 +34,7 @@ func init() {
 	flag.BoolVar(&showHelp, "help", showHelp, "show this help message and exit")
 	flag.StringVar(&ipsRaw, "ips", ipsRaw, "comma separated list of ip addresses")
 	flag.IntVar(&reconnectRetries, "retry", reconnectRetries, "number of db connection attempts, convenient for docker-compose")
+	flag.IntVar(&pprofPort, "pprof", pprofPort, "pprof web server port for profiling purposes (0 - disabled)")
 }
 
 func main() {
@@ -68,7 +74,13 @@ func main() {
 		ips = strings.Split(ipsRaw, ",")
 	}
 
-	crawler, err := newCrawler(urls, ips, time.Duration(period)*time.Second, db)
+	if pprofPort > 0 {
+		go func() {
+			log.Println(http.ListenAndServe(fmt.Sprintf("localhost:%d", pprofPort), nil))
+		}()
+	}
+
+	crawler, err := newCrawler(ips, time.Duration(period)*time.Second, db)
 	if err != nil {
 		fmt.Printf("Error: failed to create crawler: %s\n", err)
 		os.Exit(1)
@@ -86,7 +98,7 @@ func main() {
 	}()
 
 	fmt.Printf("Starting crawler [∫]\n")
-	if err = crawler.Crawl(shutdownC); err != nil {
+	if err = crawler.Crawl(urls, shutdownC); err != nil {
 		fmt.Printf("Error: Crawler failed: %s\n", err)
 		os.Exit(1)
 	}

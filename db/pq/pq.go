@@ -38,7 +38,7 @@ func New(uri string, retries int) (*DB, error) {
 	return res, nil
 }
 
-func (db *DB) Write(flushPeriod time.Duration, rC <-chan db.Record, errC chan<- error) {
+func (db *DB) Write(flushPeriod time.Duration, rC <-chan *db.Record, errC chan<- error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		errC <- err

@@ -12,5 +12,5 @@ type Record struct {
 }
 
 type Writer interface {
-	Write(flushPeriod time.Duration, rC <-chan Record, errC chan<- error)
+	Write(flushPeriod time.Duration, rC <-chan *Record, errC chan<- error)
 }

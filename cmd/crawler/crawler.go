@@ -15,16 +15,12 @@ type client struct {
 	a *net.TCPAddr
 }
 
-func (c *client) check(url string, rC chan<- db.Record) {
-	rec := db.Record{URL: url, Time: time.Now(), LocalIP: c.a.IP.String()}
+func (c *client) check(url string, rC chan<- *db.Record) {
 	_, err := c.c.Get(url)
-	if err == nil {
-		rec.Up = true
-	}
-	rC <- rec
+	rC <- &db.Record{URL: url, Time: time.Now(), LocalIP: c.a.IP.String(), Up: err == nil}
 }
 
-func (c *client) Check(url string, period time.Duration, rC chan<- db.Record, shutdownC <-chan struct{}) {
+func (c *client) Check(url string, period time.Duration, rC chan<- *db.Record, shutdownC <-chan struct{}) {
 	tick := time.NewTicker(period)
 	defer tick.Stop()
 
@@ -61,33 +57,29 @@ func getLocalAddr() (*net.TCPAddr, error) {
 
 func setupClient(period time.Duration, addr *net.TCPAddr) *http.Client {
 	return &http.Client{
-		Timeout: period,
+		Timeout: period / 2,
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
 				LocalAddr: addr,
-				Timeout:   period,
-				KeepAlive: period,
+				Timeout:   period / 2,
 				DualStack: true,
 			}).DialContext,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+			MaxIdleConns:        1,
+			TLSHandshakeTimeout: period / 2,
+			DisableKeepAlives:   true,
 		},
 	}
 }
 
 type crawler struct {
-	urls    []string
 	clients []*client
 	period  time.Duration
 	w       db.Writer
 }
 
-func newCrawler(urls, ips []string, period time.Duration, w db.Writer) (*crawler, error) {
+func newCrawler(ips []string, period time.Duration, w db.Writer) (*crawler, error) {
 	res := &crawler{
-		urls:   urls,
 		period: period,
 		w:      w,
 	}
@@ -115,17 +107,17 @@ func newCrawler(urls, ips []string, period time.Duration, w db.Writer) (*crawler
 	return res, nil
 }
 
-func (c *crawler) Crawl(shutdownC <-chan struct{}) error {
-	rC := make(chan db.Record, 500)
+func (c *crawler) Crawl(urls []string, shutdownC <-chan struct{}) error {
+	rC := make(chan *db.Record, 500)
 	errC := make(chan error)
 	stopC := make(chan struct{})
 
-	go c.w.Write(c.period, rC, errC)
+	go c.w.Write(5*time.Second, rC, errC)
 
 	wg := sync.WaitGroup{}
 
 	for _, cl := range c.clients {
-		for _, url := range c.urls {
+		for _, url := range urls {
 			wg.Add(1)
 			go func(cl *client, url string) {
 				cl.Check(url, c.period, rC, stopC)
@@ -133,6 +125,8 @@ func (c *crawler) Crawl(shutdownC <-chan struct{}) error {
 			}(cl, url)
 		}
 	}
+
+	urls = nil
 
 	var err error
 
