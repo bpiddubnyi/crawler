@@ -10,7 +10,7 @@ services:
      - -period=5
      - -config=/tmp/crawler_config
     volumes:
-     - ./example_config:/tmp/crawler_config
+     - ./extra/example_config:/tmp/crawler_config
   
   psql:
     build: ./db/pq/
