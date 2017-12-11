@@ -130,7 +130,7 @@ func New(ips []string, period time.Duration, follow bool, w db.Writer) (*Client,
 }
 
 // Crawl periodically creates HTTP GET requests to urls, checks if it's
-// possible to get ahy correct HTTP response, and saves result (is server up
+// possible to get any correct HTTP response, and saves result (is server up
 // or down) to db.
 func (c *Client) Crawl(urls []string, flushPeriod time.Duration, shutdownC <-chan struct{}) error {
 	rC := make(chan *db.Record, 500)

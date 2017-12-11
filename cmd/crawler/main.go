@@ -3,7 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,19 +14,16 @@ import (
 	"github.com/bpiddubnyi/crawler/cmd/crawler/client"
 	"github.com/bpiddubnyi/crawler/cmd/crawler/config"
 	"github.com/bpiddubnyi/crawler/db/pq"
-
-	"net/http"
-	_ "net/http/pprof"
 )
 
 var (
-	dbURI            = "postgres://user:password@localhost/db?sslmode=disable"
 	cfgFileName      string
+	ipsRaw           string
+	pprofAddr        string
+	dbURI            = "postgres://user:password@localhost/db?sslmode=disable"
 	period           = 30
 	showHelp         = false
-	ipsRaw           string
 	reconnectRetries = 5
-	pprofPort        = 0
 	followRedirects  = false
 	dbFlushPeriod    = 5
 )
@@ -37,7 +35,7 @@ func init() {
 	flag.BoolVar(&showHelp, "help", showHelp, "show this help message and exit")
 	flag.StringVar(&ipsRaw, "ips", ipsRaw, "comma separated list of ip addresses")
 	flag.IntVar(&reconnectRetries, "retry", reconnectRetries, "number of db connection attempts, convenient for docker-compose")
-	flag.IntVar(&pprofPort, "pprof", pprofPort, "pprof web server port for profiling purposes (0 - disabled)")
+	flag.StringVar(&pprofAddr, "pprof", pprofAddr, "pprof web server listen address for profiling purposes (empty - disabled)")
 	flag.BoolVar(&followRedirects, "follow", followRedirects, "follow HTTP redirects")
 	flag.IntVar(&dbFlushPeriod, "flush", dbFlushPeriod, "database flush period in seconds")
 }
@@ -80,9 +78,9 @@ func main() {
 		ips = strings.Split(ipsRaw, ",")
 	}
 
-	if pprofPort > 0 {
+	if len(pprofAddr) > 0 {
 		go func() {
-			log.Println(http.ListenAndServe(fmt.Sprintf("localhost:%d", pprofPort), nil))
+			fmt.Println(http.ListenAndServe(pprofAddr, nil))
 		}()
 	}
 

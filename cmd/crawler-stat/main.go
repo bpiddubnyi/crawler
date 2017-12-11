@@ -43,7 +43,7 @@ func parseTimeString(str string) (time.Time, error) {
 	if err == nil {
 		// This is ugly, but it seems like it's the only way to set the date without
 		// touching the time
-		t = t.AddDate(int(cur.Year()-t.Year()), int(cur.Month()-t.Month()), int(cur.Day()-t.Day()))
+		t = t.AddDate(cur.Year()-t.Year(), int(cur.Month()-t.Month()), cur.Day()-t.Day())
 		return t, nil
 	}
 	return t, err

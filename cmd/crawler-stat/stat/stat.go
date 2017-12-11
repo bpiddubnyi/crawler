@@ -61,7 +61,7 @@ func Aggregate(recs []db.Record) []Stat {
 		curIntIncomplete bool
 	)
 
-	stat := []Stat{}
+	var stat []Stat
 	for _, r := range recs {
 		if curUptime != nil && (curUptime.URL != r.URL || curUptime.LocalIP != r.LocalIP) {
 			if curInterval != nil && !curIntIncomplete {

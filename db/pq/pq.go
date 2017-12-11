@@ -14,7 +14,7 @@ type DB struct {
 
 func New(uri string, retries int) (*DB, error) {
 	var (
-		res *DB = &DB{}
+		res = &DB{}
 		err error
 	)
 
