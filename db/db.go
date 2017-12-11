@@ -16,6 +16,5 @@ type Writer interface {
 }
 
 type RecordGetter interface {
-	GetRecords(from, to time.Time) ([]Record, error)
-	GetDomainRecords(url string, from, to time.Time) ([]Record, error)
+	GetRecords(from, to time.Time, url ...string) ([]Record, error)
 }

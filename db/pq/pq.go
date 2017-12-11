@@ -98,31 +98,22 @@ theLoop:
 	errC <- err
 }
 
-func (d *DB) GetRecords(from, to time.Time) ([]db.Record, error) {
-	rows, err := d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
-		WHERE time >= $1 AND time <= $2
-		ORDER BY time`, from.UTC(), to.UTC())
-	if err != nil {
-		return nil, err
+func (d *DB) GetRecords(from, to time.Time, url ...string) ([]db.Record, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if len(url) > 0 {
+		rows, err = d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
+			WHERE time >= $1 AND time <= $2 AND url=ANY($3)
+			ORDER BY url, time`, from.UTC(), to.UTC(), pq.Array(url))
+	} else {
+		rows, err = d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
+			WHERE time >= $1 AND time <= $2
+			ORDER BY url, time`, from.UTC(), to.UTC())
 	}
 
-	res := []db.Record{}
-	for rows.Next() {
-		r := db.Record{}
-		err = rows.Scan(&r.URL, &r.Time, &r.LocalIP, &r.Up)
-		if err != nil {
-			return nil, err
-		}
-		res = append(res, r)
-	}
-
-	return res, nil
-}
-
-func (d *DB) GetDomainRecords(url string, from, to time.Time) ([]db.Record, error) {
-	rows, err := d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
-		WHERE time >= $1 AND time <= $2 AND url=$3
-		ORDER BY time`, from.UTC(), to.UTC(), url)
 	if err != nil {
 		return nil, err
 	}
