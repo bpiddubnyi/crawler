@@ -25,6 +25,7 @@ var (
 	ipsRaw           string
 	reconnectRetries = 5
 	pprofPort        = 0
+	followRedirects  = false
 )
 
 func init() {
@@ -35,6 +36,7 @@ func init() {
 	flag.StringVar(&ipsRaw, "ips", ipsRaw, "comma separated list of ip addresses")
 	flag.IntVar(&reconnectRetries, "retry", reconnectRetries, "number of db connection attempts, convenient for docker-compose")
 	flag.IntVar(&pprofPort, "pprof", pprofPort, "pprof web server port for profiling purposes (0 - disabled)")
+	flag.BoolVar(&followRedirects, "follow", followRedirects, "follow HTTP redirects")
 }
 
 func main() {
@@ -81,7 +83,7 @@ func main() {
 		}()
 	}
 
-	crawler, err := newCrawler(ips, time.Duration(period)*time.Second, db)
+	crawler, err := newCrawler(ips, time.Duration(period)*time.Second, followRedirects, db)
 	if err != nil {
 		fmt.Printf("Error: failed to create crawler: %s\n", err)
 		os.Exit(1)

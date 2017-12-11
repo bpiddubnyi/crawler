@@ -63,12 +63,17 @@ func getLocalAddr() (*net.TCPAddr, error) {
 	return &net.TCPAddr{IP: conn.LocalAddr().(*net.UDPAddr).IP}, nil
 }
 
-func setupClient(timeout time.Duration, addr *net.TCPAddr) *http.Client {
+func setupClient(timeout time.Duration, addr *net.TCPAddr, follow bool) *http.Client {
+	checkRedirect := func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	if follow {
+		checkRedirect = nil
+	}
+
 	return &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       timeout,
+		CheckRedirect: checkRedirect,
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
@@ -89,7 +94,7 @@ type crawler struct {
 	w       db.Writer
 }
 
-func newCrawler(ips []string, period time.Duration, w db.Writer) (*crawler, error) {
+func newCrawler(ips []string, period time.Duration, follow bool, w db.Writer) (*crawler, error) {
 	res := &crawler{
 		period: period,
 		w:      w,
@@ -103,7 +108,7 @@ func newCrawler(ips []string, period time.Duration, w db.Writer) (*crawler, erro
 				return nil, fmt.Errorf("Failed to resolve tcp address %s: %s", ip, err)
 			}
 
-			res.clients[i] = &client{c: setupClient(period-period/3, addr), a: addr}
+			res.clients[i] = &client{c: setupClient(period-period/3, addr, follow), a: addr}
 		}
 	} else {
 		addr, err := getLocalAddr()
@@ -112,7 +117,7 @@ func newCrawler(ips []string, period time.Duration, w db.Writer) (*crawler, erro
 		}
 
 		res.clients = make([]*client, 1)
-		res.clients[0] = &client{c: setupClient(period-period/3, nil), a: addr}
+		res.clients[0] = &client{c: setupClient(period-period/3, nil, follow), a: addr}
 	}
 
 	return res, nil
