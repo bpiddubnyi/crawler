@@ -62,6 +62,7 @@ func main() {
 		fmt.Printf("Error: failed to parse config: %s\n", err)
 		os.Exit(1)
 	}
+	cfgFile.Close()
 
 	db, err := pq.New(dbURI, reconnectRetries)
 	if err != nil {
@@ -100,6 +101,5 @@ func main() {
 	fmt.Printf("Starting crawler [∫]\n")
 	if err = crawler.Crawl(urls, shutdownC); err != nil {
 		fmt.Printf("Error: Crawler failed: %s\n", err)
-		os.Exit(1)
 	}
 }

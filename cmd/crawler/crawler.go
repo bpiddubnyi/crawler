@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"sync"
@@ -16,11 +18,17 @@ type client struct {
 }
 
 func (c *client) check(url string, rC chan<- *db.Record) {
-	_, err := c.c.Get(url)
+	resp, err := c.c.Get(url)
+	if err == nil {
+		io.Copy(ioutil.Discard, resp.Body)
+		resp.Body.Close()
+	}
 	rC <- &db.Record{URL: url, Time: time.Now(), LocalIP: c.a.IP.String(), Up: err == nil}
 }
 
-func (c *client) Check(url string, period time.Duration, rC chan<- *db.Record, shutdownC <-chan struct{}) {
+func (c *client) Check(wait time.Duration, url string, period time.Duration, rC chan<- *db.Record, shutdownC <-chan struct{}) {
+	time.Sleep(wait)
+
 	tick := time.NewTicker(period)
 	defer tick.Stop()
 
@@ -55,18 +63,21 @@ func getLocalAddr() (*net.TCPAddr, error) {
 	return &net.TCPAddr{IP: conn.LocalAddr().(*net.UDPAddr).IP}, nil
 }
 
-func setupClient(period time.Duration, addr *net.TCPAddr) *http.Client {
+func setupClient(timeout time.Duration, addr *net.TCPAddr) *http.Client {
 	return &http.Client{
-		Timeout: period / 2,
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			DialContext: (&net.Dialer{
 				LocalAddr: addr,
-				Timeout:   period / 2,
+				Timeout:   timeout,
 				DualStack: true,
 			}).DialContext,
 			MaxIdleConns:        1,
-			TLSHandshakeTimeout: period / 2,
+			TLSHandshakeTimeout: timeout,
 			DisableKeepAlives:   true,
 		},
 	}
@@ -89,10 +100,10 @@ func newCrawler(ips []string, period time.Duration, w db.Writer) (*crawler, erro
 		for i, ip := range ips {
 			addr, err := net.ResolveTCPAddr("tcp", ip+":0")
 			if err != nil {
-				return nil, fmt.Errorf("Failed to resolve tcp address %s: %s\n", ip, err)
+				return nil, fmt.Errorf("Failed to resolve tcp address %s: %s", ip, err)
 			}
 
-			res.clients[i] = &client{c: setupClient(period, addr), a: addr}
+			res.clients[i] = &client{c: setupClient(period-period/3, addr), a: addr}
 		}
 	} else {
 		addr, err := getLocalAddr()
@@ -101,7 +112,7 @@ func newCrawler(ips []string, period time.Duration, w db.Writer) (*crawler, erro
 		}
 
 		res.clients = make([]*client, 1)
-		res.clients[0] = &client{c: setupClient(period, nil), a: addr}
+		res.clients[0] = &client{c: setupClient(period-period/3, nil), a: addr}
 	}
 
 	return res, nil
@@ -116,17 +127,15 @@ func (c *crawler) Crawl(urls []string, shutdownC <-chan struct{}) error {
 
 	wg := sync.WaitGroup{}
 
-	for _, cl := range c.clients {
-		for _, url := range urls {
+	for i, url := range urls {
+		for _, cl := range c.clients {
 			wg.Add(1)
 			go func(cl *client, url string) {
-				cl.Check(url, c.period, rC, stopC)
+				cl.Check((c.period*time.Duration(i))/time.Duration(len(urls)), url, c.period, rC, stopC)
 				wg.Done()
 			}(cl, url)
 		}
 	}
-
-	urls = nil
 
 	var err error
 

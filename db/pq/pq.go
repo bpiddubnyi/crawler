@@ -63,7 +63,7 @@ theLoop:
 			}
 			_, err = stmt.Exec(r.URL, r.Time.UTC(), r.LocalIP, r.Up)
 			if err != nil {
-				tx = nil
+				stmt = nil
 				break theLoop
 			}
 		case <-t.C:
@@ -90,7 +90,8 @@ theLoop:
 		}
 	}
 
-	if tx != nil {
+	if stmt != nil {
+		stmt.Exec()
 		tx.Commit()
 	}
 
