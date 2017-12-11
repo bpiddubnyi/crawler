@@ -62,18 +62,23 @@ func printStat(s stat.Stat) {
 		s.LongestDown.From.In(time.Local), s.LongestDown.To.In(time.Local))
 }
 
+func printUsage() {
+	fmt.Printf("Usage: %s [options] url...\n", os.Args[0])
+	fmt.Printf("Options:\n")
+	flag.PrintDefaults()
+}
+
 func main() {
 	flag.Parse()
-	flag.Args()
 
 	if showHelp {
-		flag.Usage()
+		printUsage()
 		return
 	}
 
 	if len(fromRaw) == 0 {
 		fmt.Println("Error: from is empty")
-		flag.Usage()
+		printUsage()
 		os.Exit(1)
 	}
 
@@ -100,13 +105,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	collector := stat.Collector{DB: d}
-	stats, err := collector.Collect(from, to, urls)
+	recs, err := d.GetRecords(from, to, urls...)
 	if err != nil {
-		fmt.Printf("Error: %s\n", err)
+		fmt.Printf("Error: Failed to get records: %s", err)
 		os.Exit(1)
 	}
 
+	stats := stat.Aggregate(recs)
 	for _, s := range stats {
 		printStat(s)
 	}

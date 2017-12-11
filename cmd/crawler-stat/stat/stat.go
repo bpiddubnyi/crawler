@@ -1,7 +1,6 @@
 package stat
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/bpiddubnyi/crawler/db"
@@ -25,17 +24,6 @@ type Stat struct {
 	LongestDown *Interval
 }
 
-// func (s *Stat) Summary() string {
-// 	if s.LongestDown == nil {
-// 		return fmt.Sprintf("%s: uptime: 100%%", s.URL)
-// 	}
-
-// 	uptimePerc := float32(s.UpTime*100) / float32(s.WholeTime)
-// 	return fmt.Sprintf("%s [from %s]:\n\twhole time: %s \n\tuptime: %s (%.2f%%)\n\tlongest downtime %s:\n\t\tfrom: %s\n\t\tto:   %s",
-// 		s.URL, s.LocalIP, s.WholeTime, s.UpTime, uptimePerc, s.LongestDown.Duration(),
-// 		s.LongestDown.From.In(time.Local), s.LongestDown.To.In(time.Local))
-// }
-
 type serverUptime struct {
 	URL       string
 	LocalIP   string
@@ -57,18 +45,9 @@ func (u *serverUptime) Stat() Stat {
 	return s
 }
 
-type Collector struct {
-	DB db.RecordGetter
-}
-
-func (c *Collector) Collect(from, to time.Time, urls []string) ([]Stat, error) {
-	recs, err := c.DB.GetRecords(from, to, urls...)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get records: %s", err)
-	}
-
+func Aggregate(recs []db.Record) []Stat {
 	if len(recs) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	var (
@@ -114,5 +93,5 @@ func (c *Collector) Collect(from, to time.Time, urls []string) ([]Stat, error) {
 	if curInterval != nil && !curIntIncomplete {
 		curUptime.Intervals = append(curUptime.Intervals, *curInterval)
 	}
-	return append(stat, curUptime.Stat()), nil
+	return append(stat, curUptime.Stat())
 }
