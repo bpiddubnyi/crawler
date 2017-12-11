@@ -7,7 +7,7 @@ services:
     entrypoint:
      - crawler
      - -db=postgres://crawl:crawl@psql/crawl?sslmode=disable
-     - -period=5
+     - -period=60
      - -config=/tmp/crawler_config
     volumes:
      - ./extra/example_config:/tmp/crawler_config
