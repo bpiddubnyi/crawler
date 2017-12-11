@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/bpiddubnyi/crawler/cmd/crawler-stat/stat"
 	"github.com/bpiddubnyi/crawler/db/pq"
 )
 
@@ -48,6 +49,19 @@ func parseTimeString(str string) (time.Time, error) {
 	return t, err
 }
 
+func printStat(s stat.Stat) {
+	uptimePerc := float32(s.UpTime*100) / float32(s.WholeTime)
+	fmt.Printf("%s [from %s]:\n\twhole time: %s \n\tuptime: %s (%.2f%%)\n",
+		s.URL, s.LocalIP, s.WholeTime, s.UpTime, uptimePerc)
+
+	if s.LongestDown == nil {
+		return
+	}
+
+	fmt.Printf("\tlongest downtime %s:\n\t\tfrom: %s\n\t\tto:   %s\n", s.LongestDown.Duration(),
+		s.LongestDown.From.In(time.Local), s.LongestDown.To.In(time.Local))
+}
+
 func main() {
 	flag.Parse()
 	flag.Args()
@@ -78,7 +92,7 @@ func main() {
 		}
 	}
 
-	domains := flag.Args()
+	urls := flag.Args()
 
 	d, err := pq.New(dbURI, 1)
 	if err != nil {
@@ -86,59 +100,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("from: ", from)
-	fmt.Println("to: ", to)
-
-	recs, err := d.GetRecords(from, to, domains...)
+	collector := stat.Collector{DB: d}
+	stats, err := collector.Collect(from, to, urls)
 	if err != nil {
-		fmt.Printf("Error: failed to get records: %s\n", err)
+		fmt.Printf("Error: %s\n", err)
 		os.Exit(1)
 	}
 
-	if len(recs) == 0 {
-		return
+	for _, s := range stats {
+		printStat(s)
 	}
-
-	var (
-		curUptime        *serverUptime
-		curInterval      *interval
-		curIntIncomplete bool
-	)
-
-	for _, r := range recs {
-		if curUptime != nil && curUptime.url != r.URL {
-			if curInterval != nil && !curIntIncomplete {
-				curUptime.intervals = append(curUptime.intervals, *curInterval)
-			}
-			fmt.Println(curUptime.Stat().Summary())
-		}
-
-		if curUptime == nil || curUptime.url != r.URL {
-			curUptime = &serverUptime{url: r.URL, intervals: []interval{}}
-			curInterval = &interval{up: r.Up, from: r.Time}
-			curIntIncomplete = true
-
-			continue
-		}
-
-		if curInterval.up == r.Up {
-			if curIntIncomplete {
-				curIntIncomplete = false
-			}
-			curInterval.to = r.Time
-		} else {
-			if curIntIncomplete {
-				curIntIncomplete = false
-			}
-			curInterval.to = r.Time
-			curUptime.intervals = append(curUptime.intervals, *curInterval)
-
-			curInterval = &interval{up: r.Up, from: r.Time}
-			curIntIncomplete = true
-		}
-	}
-	if curInterval != nil && !curIntIncomplete {
-		curUptime.intervals = append(curUptime.intervals, *curInterval)
-	}
-	fmt.Println(curUptime.Stat().Summary())
 }

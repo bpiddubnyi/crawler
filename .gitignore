@@ -1,4 +1,4 @@
 .vscode
 debug
-crawler
-crawler-stat
+cmd/crawler/crawler
+cmd/crawler-stat/crawler-stat

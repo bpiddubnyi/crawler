@@ -107,11 +107,11 @@ func (d *DB) GetRecords(from, to time.Time, url ...string) ([]db.Record, error) 
 	if len(url) > 0 {
 		rows, err = d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
 			WHERE time >= $1 AND time <= $2 AND url=ANY($3)
-			ORDER BY url, time`, from.UTC(), to.UTC(), pq.Array(url))
+			ORDER BY url, local_ip, time`, from.UTC(), to.UTC(), pq.Array(url))
 	} else {
 		rows, err = d.conn.Query(`SELECT url, time, local_ip, up FROM uptime_log
 			WHERE time >= $1 AND time <= $2
-			ORDER BY url, time`, from.UTC(), to.UTC())
+			ORDER BY url, local_ip, time`, from.UTC(), to.UTC())
 	}
 
 	if err != nil {
