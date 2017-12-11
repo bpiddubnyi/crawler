@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"fmt"
@@ -88,14 +88,20 @@ func setupClient(timeout time.Duration, addr *net.TCPAddr, follow bool) *http.Cl
 	}
 }
 
-type crawler struct {
+// Client is a HTTP client wrapper
+type Client struct {
 	clients []*client
 	period  time.Duration
 	w       db.Writer
 }
 
-func newCrawler(ips []string, period time.Duration, follow bool, w db.Writer) (*crawler, error) {
-	res := &crawler{
+// New creates new crawler with one or more HTTP clients depending on number of ip addresses
+// passed in ips.
+// If ips is empty or nil, single client will be created with no IP specified.
+// Period impacts both TCP and HTTP timeouts and actual url status check period.
+// If follow is true, HTTP client will follow HTTP redirects.
+func New(ips []string, period time.Duration, follow bool, w db.Writer) (*Client, error) {
+	res := &Client{
 		period: period,
 		w:      w,
 	}
@@ -123,12 +129,15 @@ func newCrawler(ips []string, period time.Duration, follow bool, w db.Writer) (*
 	return res, nil
 }
 
-func (c *crawler) Crawl(urls []string, shutdownC <-chan struct{}) error {
+// Crawl periodically creates HTTP GET requests to urls, checks if it's
+// possible to get ahy correct HTTP response, and saves result (is server up
+// or down) to db.
+func (c *Client) Crawl(urls []string, flushPeriod time.Duration, shutdownC <-chan struct{}) error {
 	rC := make(chan *db.Record, 500)
 	errC := make(chan error)
 	stopC := make(chan struct{})
 
-	go c.w.Write(5*time.Second, rC, errC)
+	go c.w.Write(flushPeriod, rC, errC)
 
 	wg := sync.WaitGroup{}
 

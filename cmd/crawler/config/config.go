@@ -14,6 +14,7 @@ var (
 	httpsPrefix = []byte("https://")
 )
 
+// Parse parses newline separated URL list
 func Parse(r io.Reader) ([]string, error) {
 	s := bufio.NewScanner(r)
 

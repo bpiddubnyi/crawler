@@ -6,20 +6,23 @@ import (
 	"github.com/bpiddubnyi/crawler/db"
 )
 
+// Interval represents server uptime/downtime interval
 type Interval struct {
 	Up   bool
 	From time.Time
 	To   time.Time
 }
 
+// Duration returns interval duration
 func (i *Interval) Duration() time.Duration {
 	return i.To.Sub(i.From)
 }
 
+// Stat is an aggregated server uptime/downtime stats
 type Stat struct {
 	URL         string
 	LocalIP     string
-	WholeTime   time.Duration
+	WholeTime   time.Duration // WholeTime shows total time data available for
 	UpTime      time.Duration
 	LongestDown *Interval
 }
@@ -45,6 +48,8 @@ func (u *serverUptime) Stat() Stat {
 	return s
 }
 
+// Aggregate takes uptime log records from db, assuming that they're ordered by
+// url, local_ip, time asc and aggregates uptime stats from them.
 func Aggregate(recs []db.Record) []Stat {
 	if len(recs) == 0 {
 		return nil

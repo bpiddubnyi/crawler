@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bpiddubnyi/crawler/cmd/crawler/client"
 	"github.com/bpiddubnyi/crawler/cmd/crawler/config"
 	"github.com/bpiddubnyi/crawler/db/pq"
 
@@ -26,6 +27,7 @@ var (
 	reconnectRetries = 5
 	pprofPort        = 0
 	followRedirects  = false
+	dbFlushPeriod    = 5
 )
 
 func init() {
@@ -37,6 +39,7 @@ func init() {
 	flag.IntVar(&reconnectRetries, "retry", reconnectRetries, "number of db connection attempts, convenient for docker-compose")
 	flag.IntVar(&pprofPort, "pprof", pprofPort, "pprof web server port for profiling purposes (0 - disabled)")
 	flag.BoolVar(&followRedirects, "follow", followRedirects, "follow HTTP redirects")
+	flag.IntVar(&dbFlushPeriod, "flush", dbFlushPeriod, "database flush period in seconds")
 }
 
 func main() {
@@ -83,7 +86,7 @@ func main() {
 		}()
 	}
 
-	crawler, err := newCrawler(ips, time.Duration(period)*time.Second, followRedirects, db)
+	client, err := client.New(ips, time.Duration(period)*time.Second, followRedirects, db)
 	if err != nil {
 		fmt.Printf("Error: failed to create crawler: %s\n", err)
 		os.Exit(1)
@@ -101,7 +104,7 @@ func main() {
 	}()
 
 	fmt.Printf("Starting crawler [∫]\n")
-	if err = crawler.Crawl(urls, shutdownC); err != nil {
+	if err = client.Crawl(urls, time.Duration(dbFlushPeriod)*time.Second, shutdownC); err != nil {
 		fmt.Printf("Error: Crawler failed: %s\n", err)
 	}
 }
