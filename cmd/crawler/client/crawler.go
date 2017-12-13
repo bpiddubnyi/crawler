@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -14,45 +16,20 @@ import (
 
 type client struct {
 	c *http.Client
-	a *net.TCPAddr
+	a string
 }
 
-func (c *client) check(url string, rC chan<- *db.Record) {
-	resp, err := c.c.Get(url)
-	if err == nil {
-		io.Copy(ioutil.Discard, resp.Body)
-		resp.Body.Close()
-	}
-	rC <- &db.Record{URL: url, Time: time.Now(), LocalIP: c.a.IP.String(), Up: err == nil}
-}
-
-func (c *client) Check(wait time.Duration, url string, period time.Duration, rC chan<- *db.Record, shutdownC <-chan struct{}) {
-	time.Sleep(wait)
-
-	tick := time.NewTicker(period)
-	defer tick.Stop()
-
-	wg := sync.WaitGroup{}
-
-theLoop:
-	for {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c.check(url, rC)
-		}()
-
-		select {
-		case <-tick.C:
-			continue theLoop
-
-		case _, ok := <-shutdownC:
-			if !ok {
-				break theLoop
-			}
+func (c *client) Check(urlC <-chan string, rC chan<- *db.Record) {
+	for url := range urlC {
+		resp, err := c.c.Get(url)
+		if err == nil {
+			io.Copy(ioutil.Discard, resp.Body)
+			resp.Body.Close()
+		} else {
+			log.Println(err)
 		}
+		rC <- &db.Record{URL: url, Time: time.Now(), LocalIP: c.a, Up: err == nil}
 	}
-	wg.Wait()
 }
 
 func getLocalAddr() (*net.TCPAddr, error) {
@@ -63,7 +40,7 @@ func getLocalAddr() (*net.TCPAddr, error) {
 	return &net.TCPAddr{IP: conn.LocalAddr().(*net.UDPAddr).IP}, nil
 }
 
-func setupClient(timeout time.Duration, addr *net.TCPAddr, follow bool) *http.Client {
+func setupClient(timeout time.Duration, addr net.Addr, proxy *url.URL, follow bool) *http.Client {
 	checkRedirect := func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -71,18 +48,25 @@ func setupClient(timeout time.Duration, addr *net.TCPAddr, follow bool) *http.Cl
 		checkRedirect = nil
 	}
 
+	p := http.ProxyFromEnvironment
+	if proxy != nil {
+		p = func(*http.Request) (*url.URL, error) {
+			return proxy, nil
+		}
+	}
+
 	return &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: checkRedirect,
 		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
+			Proxy: p,
 			DialContext: (&net.Dialer{
 				LocalAddr: addr,
-				Timeout:   timeout,
+				Timeout:   timeout / 2,
 				DualStack: true,
 			}).DialContext,
 			MaxIdleConns:        1,
-			TLSHandshakeTimeout: timeout,
+			TLSHandshakeTimeout: 10 * time.Second,
 			DisableKeepAlives:   true,
 		},
 	}
@@ -100,7 +84,7 @@ type Client struct {
 // If ips is empty or nil, single client will be created with no IP specified.
 // Period impacts both TCP and HTTP timeouts and actual url status check period.
 // If follow is true, HTTP client will follow HTTP redirects.
-func New(ips []string, period time.Duration, follow bool, w db.Writer) (*Client, error) {
+func New(ips []string, proxies []string, period time.Duration, follow bool, w db.Writer) (*Client, error) {
 	res := &Client{
 		period: period,
 		w:      w,
@@ -114,16 +98,28 @@ func New(ips []string, period time.Duration, follow bool, w db.Writer) (*Client,
 				return nil, fmt.Errorf("Failed to resolve tcp address %s: %s", ip, err)
 			}
 
-			res.clients[i] = &client{c: setupClient(period-period/3, addr, follow), a: addr}
+			res.clients[i] = &client{c: setupClient(period, addr, nil, follow), a: addr.String()}
 		}
-	} else {
+	}
+
+	if len(proxies) > 0 {
+		for _, proxy := range proxies {
+			proxyURL, err := url.Parse(proxy)
+			if err != nil {
+				return nil, fmt.Errorf("Failed to parse proxy URL %s: %s", proxy, err)
+			}
+			res.clients = append(res.clients, &client{c: setupClient(period, nil, proxyURL, follow), a: proxyURL.String()})
+		}
+	}
+
+	if len(res.clients) == 0 {
 		addr, err := getLocalAddr()
 		if err != nil {
 			return nil, fmt.Errorf("Failed to create connection to get the local address: %s", err)
 		}
 
 		res.clients = make([]*client, 1)
-		res.clients[0] = &client{c: setupClient(period-period/3, nil, follow), a: addr}
+		res.clients[0] = &client{c: setupClient(period-period/3, nil, nil, follow), a: addr.String()}
 	}
 
 	return res, nil
@@ -132,43 +128,63 @@ func New(ips []string, period time.Duration, follow bool, w db.Writer) (*Client,
 // Crawl periodically creates HTTP GET requests to urls, checks if it's
 // possible to get any correct HTTP response, and saves result (is server up
 // or down) to db.
-func (c *Client) Crawl(urls []string, flushPeriod time.Duration, shutdownC <-chan struct{}) error {
+func (c *Client) Crawl(urls []string, flushPeriod time.Duration, nWorkers int, shutdownC <-chan struct{}) error {
 	rC := make(chan *db.Record, 500)
 	errC := make(chan error)
-	stopC := make(chan struct{})
+	urlC := make(chan string, 500)
+	t := time.NewTicker(c.period)
+	defer t.Stop()
 
 	go c.w.Write(flushPeriod, rC, errC)
 
 	wg := sync.WaitGroup{}
 
-	for i, url := range urls {
-		for _, cl := range c.clients {
+	for _, cl := range c.clients {
+		for i := 0; i < nWorkers; i++ {
 			wg.Add(1)
-			go func(cl *client, url string) {
-				cl.Check((c.period*time.Duration(i))/time.Duration(len(urls)), url, c.period, rC, stopC)
+			go func(c *client) {
+				c.Check(urlC, rC)
 				wg.Done()
-			}(cl, url)
+			}(cl)
 		}
 	}
 
 	var err error
 
-	select {
-	case _, ok := <-shutdownC:
-		if !ok {
-			close(stopC)
-			wg.Wait()
-			close(rC)
-			err = <-errC
-			break
+theLoop:
+	for {
+		for _, url := range urls {
+			select {
+			case _, ok := <-shutdownC:
+				if !ok {
+					break theLoop
+				}
+			case urlC <- url:
+				continue
+			}
 		}
-	case err = <-errC:
-		close(stopC)
-		wg.Wait()
-		close(rC)
-		break
+
+		select {
+		case <-t.C:
+			continue theLoop
+		case _, ok := <-shutdownC:
+			if !ok {
+				break theLoop
+			}
+		case err = <-errC:
+			close(errC)
+			errC = nil
+			break theLoop
+		}
 	}
 
-	close(errC)
+	close(urlC)
+	wg.Wait()
+	close(rC)
+	if errC != nil {
+		err = <-errC
+		close(errC)
+	}
+
 	return err
 }

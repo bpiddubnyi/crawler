@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -19,9 +20,10 @@ import (
 var (
 	cfgFileName      string
 	ipsRaw           string
+	proxiesRaw       string
 	pprofAddr        string
 	dbURI            = "postgres://user:password@localhost/db?sslmode=disable"
-	period           = 30
+	period           = 60
 	showHelp         = false
 	reconnectRetries = 5
 	followRedirects  = false
@@ -38,6 +40,7 @@ func init() {
 	flag.StringVar(&pprofAddr, "pprof", pprofAddr, "pprof web server listen address for profiling purposes (empty - disabled)")
 	flag.BoolVar(&followRedirects, "follow", followRedirects, "follow HTTP redirects")
 	flag.IntVar(&dbFlushPeriod, "flush", dbFlushPeriod, "database flush period in seconds")
+	flag.StringVar(&proxiesRaw, "proxies", proxiesRaw, "comma separated proxy url list")
 }
 
 func main() {
@@ -78,13 +81,21 @@ func main() {
 		ips = strings.Split(ipsRaw, ",")
 	}
 
+	var proxies []string
+	if len(proxiesRaw) > 0 {
+		proxies = strings.Split(proxiesRaw, ",")
+	}
+
 	if len(pprofAddr) > 0 {
 		go func() {
-			fmt.Println(http.ListenAndServe(pprofAddr, nil))
+			err := http.ListenAndServe(pprofAddr, nil)
+			if err != nil {
+				fmt.Printf("Error: Failed to start pprof web server: %s\n", err)
+			}
 		}()
 	}
 
-	client, err := client.New(ips, time.Duration(period)*time.Second, followRedirects, db)
+	client, err := client.New(ips, proxies, time.Duration(period)*time.Second, followRedirects, db)
 	if err != nil {
 		fmt.Printf("Error: failed to create crawler: %s\n", err)
 		os.Exit(1)
@@ -101,8 +112,8 @@ func main() {
 		close(shutdownC)
 	}()
 
-	fmt.Printf("Starting crawler [∫]\n")
-	if err = client.Crawl(urls, time.Duration(dbFlushPeriod)*time.Second, shutdownC); err != nil {
+	log.Printf("Starting crawler [∫]\n")
+	if err = client.Crawl(urls, time.Duration(dbFlushPeriod)*time.Second, 40, shutdownC); err != nil {
 		fmt.Printf("Error: Crawler failed: %s\n", err)
 	}
 }

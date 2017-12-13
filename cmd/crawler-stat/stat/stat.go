@@ -63,14 +63,17 @@ func Aggregate(recs []db.Record) []Stat {
 
 	var stat []Stat
 	for _, r := range recs {
-		if curUptime != nil && (curUptime.URL != r.URL || curUptime.LocalIP != r.LocalIP) {
+		if curUptime != nil && (curUptime.URL != r.URL || (curUptime.LocalIP != r.LocalIP)) {
 			if curInterval != nil && !curIntIncomplete {
 				curUptime.Intervals = append(curUptime.Intervals, *curInterval)
 			}
-			stat = append(stat, curUptime.Stat())
+			if len(curUptime.Intervals) != 0 {
+				stat = append(stat, curUptime.Stat())
+			}
+
 		}
 
-		if curUptime == nil || (curUptime.URL != r.URL || curUptime.LocalIP != r.LocalIP) {
+		if curUptime == nil || (curUptime.URL != r.URL || (curUptime.LocalIP != r.LocalIP)) {
 			curUptime = &serverUptime{URL: r.URL, LocalIP: r.LocalIP, Intervals: []Interval{}}
 			curInterval = &Interval{Up: r.Up, From: r.Time}
 			curIntIncomplete = true
@@ -98,5 +101,8 @@ func Aggregate(recs []db.Record) []Stat {
 	if curInterval != nil && !curIntIncomplete {
 		curUptime.Intervals = append(curUptime.Intervals, *curInterval)
 	}
-	return append(stat, curUptime.Stat())
+	if len(curUptime.Intervals) != 0 {
+		stat = append(stat, curUptime.Stat())
+	}
+	return stat
 }
