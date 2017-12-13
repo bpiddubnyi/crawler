@@ -63,7 +63,6 @@ func setupClient(timeout time.Duration, addr net.Addr, proxy *url.URL, follow bo
 			DialContext: (&net.Dialer{
 				LocalAddr: addr,
 				Timeout:   timeout / 2,
-				DualStack: true,
 			}).DialContext,
 			MaxIdleConns:        1,
 			TLSHandshakeTimeout: 10 * time.Second,
