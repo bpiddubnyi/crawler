@@ -2,3 +2,4 @@
 debug
 cmd/crawler/crawler
 cmd/crawler-stat/crawler-stat
+vendor/
