@@ -28,6 +28,7 @@ var (
 	reconnectRetries = 5
 	followRedirects  = false
 	dbFlushPeriod    = 5
+	nWorkers         = 40
 )
 
 func init() {
@@ -41,6 +42,7 @@ func init() {
 	flag.BoolVar(&followRedirects, "follow", followRedirects, "follow HTTP redirects")
 	flag.IntVar(&dbFlushPeriod, "flush", dbFlushPeriod, "database flush period in seconds")
 	flag.StringVar(&proxiesRaw, "proxies", proxiesRaw, "comma separated proxy url list")
+	flag.IntVar(&nWorkers, "workers", nWorkers, "number of workers per IP/proxy")
 }
 
 func main() {
@@ -54,6 +56,26 @@ func main() {
 	if len(cfgFileName) == 0 {
 		fmt.Printf("Error: empty config filename\n")
 		flag.Usage()
+		os.Exit(1)
+	}
+
+	if period < 1 {
+		fmt.Printf("Error: period shoud be positive integer value\n")
+		os.Exit(1)
+	}
+
+	if nWorkers < 1 {
+		fmt.Printf("Error: workers should be positive integer value\n")
+		os.Exit(1)
+	}
+
+	if reconnectRetries < 1 {
+		fmt.Printf("Error: retry should be positive integer value\n")
+		os.Exit(1)
+	}
+
+	if dbFlushPeriod < 1 {
+		fmt.Printf("Error: flush period should be positive integer value\n")
 		os.Exit(1)
 	}
 
@@ -113,7 +135,7 @@ func main() {
 	}()
 
 	log.Printf("Starting crawler [∫]\n")
-	if err = client.Crawl(urls, time.Duration(dbFlushPeriod)*time.Second, 40, shutdownC); err != nil {
+	if err = client.Crawl(urls, time.Duration(dbFlushPeriod)*time.Second, nWorkers, shutdownC); err != nil {
 		fmt.Printf("Error: Crawler failed: %s\n", err)
 	}
 }

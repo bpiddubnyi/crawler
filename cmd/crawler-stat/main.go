@@ -13,7 +13,6 @@ import (
 var (
 	fromRaw  string
 	toRaw    string
-	server   string
 	dbURI    = "postgres://user:password@localhost/db?sslmode=disable"
 	showHelp bool
 )
@@ -26,7 +25,6 @@ const (
 func init() {
 	flag.StringVar(&fromRaw, "from", fromRaw, fmt.Sprintf("starting time in %s format", timeFormat))
 	flag.StringVar(&toRaw, "to", toRaw, fmt.Sprintf("end time in %s format, current time by default", timeFormat))
-	flag.StringVar(&server, "server", server, "server to query stats for")
 	flag.BoolVar(&showHelp, "help", showHelp, "show this help messahe and exit")
 	flag.StringVar(&dbURI, "db", dbURI, "postgres connection string")
 }
